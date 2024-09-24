@@ -20,10 +20,13 @@ import {
   SearchIcon,
   UploadIcon,
   RefreshCwIcon,
-  FileTextIcon,
+  FileIcon,
+  BookOpenIcon,
 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const formSchema = z.object({
+const singleUploadSchema = z.object({
   id: z.string().min(1, "ID is required"),
   text: z.string().min(1, "Text is required"),
   jurisdiction: z.string().min(1, "Jurisdiction is required"),
@@ -34,13 +37,21 @@ const formSchema = z.object({
   title: z.string().min(1, "Title is required").toUpperCase(),
 });
 
-type FormValues = z.infer<typeof formSchema>;
+const bulkUploadSchema = z.object({
+  file: z.instanceof(File).refine((file) => file.name.endsWith(".csv"), {
+    message: "File must be a CSV",
+  }),
+});
 
-const AdminPanel: React.FC = () => {
+type SingleUploadFormValues = z.infer<typeof singleUploadSchema>;
+type BulkUploadFormValues = z.infer<typeof bulkUploadSchema>;
+
+export default function Component() {
+  const [isBulkUpload, setIsBulkUpload] = useState(false);
   const [isIdExist, setIsIdExist] = useState<boolean | null>(null);
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+  const singleUploadForm = useForm<SingleUploadFormValues>({
+    resolver: zodResolver(singleUploadSchema),
     defaultValues: {
       id: "",
       text: "",
@@ -51,6 +62,10 @@ const AdminPanel: React.FC = () => {
     },
   });
 
+  const bulkUploadForm = useForm<BulkUploadFormValues>({
+    resolver: zodResolver(bulkUploadSchema),
+  });
+
   const checkIdExistence = (id: string) => {
     console.log(`Checking if ID ${id} exists in the database`);
     setTimeout(() => {
@@ -59,18 +74,24 @@ const AdminPanel: React.FC = () => {
   };
 
   useEffect(() => {
-    const subscription = form.watch((value, { name }) => {
+    const subscription = singleUploadForm.watch((value, { name }) => {
       if (name === "id" && value.id) {
         checkIdExistence(value.id);
       }
     });
     return () => subscription.unsubscribe();
-  }, [form.watch]);
+  }, [singleUploadForm.watch]);
 
-  const onSubmit: SubmitHandler<FormValues> = (data: FormValues) => {
+  const onSingleUploadSubmit: SubmitHandler<SingleUploadFormValues> = (
+    data
+  ) => {
     const actionType = isIdExist ? "Update" : "Upload";
     console.log(`${actionType} action - Form Data:`);
     console.log(JSON.stringify(data, null, 2));
+  };
+
+  const onBulkUploadSubmit: SubmitHandler<BulkUploadFormValues> = (data) => {
+    console.log("Bulk Upload - File:", data.file.name);
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -79,204 +100,219 @@ const AdminPanel: React.FC = () => {
       const reader = new FileReader();
       reader.onload = (e: ProgressEvent<FileReader>) => {
         const text = e.target?.result;
-        form.setValue("text", text as string);
+        singleUploadForm.setValue("text", text as string);
       };
       reader.readAsText(file);
     }
   };
 
   return (
-    <div className="min-h-screen  flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl w-full space-y-8 bg-white p-10 rounded-xl shadow-2xl">
-        <div className="text-center">
-          <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
+    <div className="container mx-auto p-6 max-w-4xl">
+      <Card className="shadow-lg">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-3xl font-bold text-center text-primary">
             Law Admin Panel
-          </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Upload or Update law information
-          </p>
-        </div>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-sm font-medium text-gray-700">
-                    ID
-                  </FormLabel>
-                  <div className="flex items-center space-x-2">
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="Enter law ID"
-                        className="flex-grow rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500"
-                      />
-                    </FormControl>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="text-teal-600 border-teal-600 hover:bg-teal-50"
-                    >
-                      <SearchIcon className="h-4 w-4" />
-                      <span className="sr-only">Search ID</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs
+            defaultValue={isBulkUpload ? "bulk" : "single"}
+            className="w-full"
+          >
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger
+                value="single"
+                onClick={() => setIsBulkUpload(false)}
+              >
+                Single Upload
+              </TabsTrigger>
+              <TabsTrigger value="bulk" onClick={() => setIsBulkUpload(true)}>
+                Bulk Upload
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="single">
+              <Form {...singleUploadForm}>
+                <form
+                  onSubmit={singleUploadForm.handleSubmit(onSingleUploadSubmit)}
+                  className="space-y-6"
+                >
+                  <FormField
+                    control={singleUploadForm.control}
+                    name="id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>ID</FormLabel>
+                        <div className="flex items-center space-x-2">
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="Enter law ID"
+                              className="flex-grow"
+                            />
+                          </FormControl>
+                          <Button type="button" size="icon" variant="outline">
+                            <SearchIcon className="h-4 w-4" />
+                            <span className="sr-only">Search ID</span>
+                          </Button>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={singleUploadForm.control}
+                    name="text"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Text</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            placeholder="Enter law text here"
+                            className="h-32"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Upload a .txt file or enter the law text manually.
+                        </FormDescription>
+                        <Input
+                          type="file"
+                          accept=".txt"
+                          onChange={handleFileUpload}
+                          className="mt-2"
+                        />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={singleUploadForm.control}
+                      name="jurisdiction"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Jurisdiction</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="e.g., MX, TTII, MX-CMX"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={singleUploadForm.control}
+                      name="source"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Source URL</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type="url"
+                              placeholder="https://example.com/law-document.txt"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={singleUploadForm.control}
+                      name="lastReformDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Last Reform Date</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="YYYY/MM/DD" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={singleUploadForm.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Title</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="LAW TITLE"
+                              onChange={(e) =>
+                                field.onChange(e.target.value.toUpperCase())
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className="flex justify-center space-x-4">
+                    {isIdExist === false && (
+                      <Button type="submit" className="w-32">
+                        <UploadIcon className="mr-2 h-4 w-4" /> Upload
+                      </Button>
+                    )}
+                    {isIdExist === true && (
+                      <Button type="submit" className="w-32">
+                        <RefreshCwIcon className="mr-2 h-4 w-4" /> Update
+                      </Button>
+                    )}
+                  </div>
+                </form>
+              </Form>
+            </TabsContent>
+            <TabsContent value="bulk">
+              <Form {...bulkUploadForm}>
+                <form
+                  onSubmit={bulkUploadForm.handleSubmit(onBulkUploadSubmit)}
+                  className="space-y-6"
+                >
+                  <FormField
+                    control={bulkUploadForm.control}
+                    name="file"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>CSV File</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="file"
+                            accept=".csv"
+                            onChange={(e) =>
+                              field.onChange(e.target.files?.[0])
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Upload a CSV file containing multiple law entries.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className="flex justify-center">
+                    <Button type="submit" className="w-32">
+                      <FileIcon className="mr-2 h-4 w-4" /> Upload CSV
                     </Button>
                   </div>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="text"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-sm font-medium text-gray-700">
-                    Text
-                  </FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      placeholder="Enter law text here"
-                      className="h-32 rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500"
-                    />
-                  </FormControl>
-                  <FormDescription className="text-sm text-gray-500">
-                    Upload a .txt file or enter the law text manually.
-                  </FormDescription>
-                  <div className="mt-2">
-                    <label
-                      htmlFor="file-upload"
-                      className="cursor-pointer inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-teal-700 bg-teal-100 hover:bg-teal-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500"
-                    >
-                      <FileTextIcon className="mr-2 h-5 w-5" />
-                      Upload .txt file
-                    </label>
-                    <Input
-                      id="file-upload"
-                      type="file"
-                      accept=".txt"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                  </div>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <FormField
-                control={form.control}
-                name="jurisdiction"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
-                      Jurisdiction
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="e.g., MX, TTII, MX-CMX"
-                        className="rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="source"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
-                      Source URL
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type="url"
-                        placeholder="https://example.com/law-document.txt"
-                        className="rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="lastReformDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
-                      Last Reform Date
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="YYYY/MM/DD"
-                        className="rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
-                      Title
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="LAW TITLE"
-                        onChange={(e) =>
-                          field.onChange(e.target.value.toUpperCase())
-                        }
-                        className="rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="flex justify-center space-x-4 mt-8">
-              {isIdExist === false && (
-                <Button
-                  type="submit"
-                  className="w-40 bg-teal-600 hover:bg-teal-700 focus:ring-teal-500 focus:ring-offset-teal-200 text-white transition ease-in duration-200 text-center text-base font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 rounded-lg"
-                >
-                  <UploadIcon className="mr-2 h-5 w-5" /> Upload
-                </Button>
-              )}
-              {isIdExist === true && (
-                <Button
-                  type="submit"
-                  className="w-40 bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 focus:ring-offset-blue-200 text-white transition ease-in duration-200 text-center text-base font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 rounded-lg"
-                >
-                  <RefreshCwIcon className="mr-2 h-5 w-5" /> Update
-                </Button>
-              )}
-            </div>
-          </form>
-        </Form>
-      </div>
+                </form>
+              </Form>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   );
-};
-
-export default AdminPanel;
+}
