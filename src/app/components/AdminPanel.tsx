@@ -49,6 +49,7 @@ export default function Component() {
   const [isBulkUpload, setIsBulkUpload] = useState(false);
   const [isIdExist, setIsIdExist] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [compendiumID, setCompendiumID] = useState<string>(""); // New state for compendiumID
 
   const singleUploadForm = useForm<SingleUploadFormValues>({
     resolver: zodResolver(singleUploadSchema),
@@ -123,19 +124,21 @@ export default function Component() {
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
-    // to be implemented
+    // TODO: Handle the logic to read and process the .txt file
   };
 
   const uploadMultipleLaws = async () => {
     const input = document.getElementById("csv") as HTMLInputElement;
     const file = input?.files?.[0];
-    if (!file) {
-      alert("No file selected");
+
+    if (!file || !compendiumID) {
+      alert("No file or compendium ID provided");
       return;
     }
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("compendiumID", compendiumID); // Append compendiumID to formData
 
     try {
       const response = await fetch("/api/upload", {
@@ -338,6 +341,20 @@ export default function Component() {
             </TabsContent>
             <TabsContent value="bulk">
               <form className="space-y-6">
+                {/* Compendium ID Field */}
+                <div className="space-y-2">
+                  <label htmlFor="compendiumID" className="block font-medium">
+                    Compendium ID
+                  </label>
+                  <Input
+                    id="compendiumID"
+                    placeholder="Enter compendium ID"
+                    value={compendiumID}
+                    onChange={(e) => setCompendiumID(e.target.value)}
+                    className="block w-full"
+                    disabled={loading}
+                  />
+                </div>
                 <input type="file" accept=".csv" id="csv" />
                 <Button
                   type="submit"

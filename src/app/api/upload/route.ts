@@ -14,27 +14,27 @@ const createLawQuery = /* GraphQL */ `
   }
 `;
 
-// Function to ensure date is in ISO 8601 format
-const formatDateToISO8601 = (date: string) => {
-  try {
-    const parsedDate = new Date(date);
-    if (!isNaN(parsedDate.getTime())) {
-      return parsedDate.toISOString(); // Converts to YYYY-MM-DDTHH:mm:ss.sssZ format
+// Mutation to create a relationship between a compendium and a law
+const createCompendiumLawQuery = /* GraphQL */ `
+  mutation CreateCompendiumLaw($input: CreateCompendiumLawInput!) {
+    createCompendiumLaw(input: $input) {
+      id
+      compendiumId
+      lawId
     }
-  } catch (error) {
-    console.error(`Error parsing date: ${date}`, error);
   }
-  return null; // Return null if the date is invalid or couldn't be parsed
-};
+`;
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("file") as Blob;
+  const compendiumID = formData.get("compendiumID") as string;
 
-  if (!file) {
-    return new NextResponse(JSON.stringify({ error: "No file provided" }), {
-      status: 400,
-    });
+  if (!file || !compendiumID) {
+    return new NextResponse(
+      JSON.stringify({ error: "File or compendiumID not provided" }),
+      { status: 400 }
+    );
   }
 
   // Read the file as text
@@ -56,34 +56,56 @@ export async function POST(req: NextRequest) {
   let successCount = 0;
   let errorCount = 0;
 
-  // Loop through each row and create a law
+  // Loop through each row and create a law, then create the relationship with the compendium
   for (const rowData of rowsData) {
     const input = {
-      id: rowData["id"], // assuming the CSV has an 'id' column
+      id: rowData["Id"], // assuming the CSV has an 'id' column
       name: rowData["title"],
       jurisdiction: rowData["jurisdiction"],
       source: rowData["source"],
-      lastReformDate:
-        formatDateToISO8601(rowData["lastReformDate"]) ||
-        "1970-01-01T00:00:00Z", // Default to an arbitrary valid date
+      lastReformDate: rowData["last_reform_date"]
     };
 
     try {
-      await runWithAmplifyServerContext({
+      // Create the law
+      const request = await runWithAmplifyServerContext({
         nextServerContext: { request: req, response: new NextResponse() },
         operation: async (contextSpec) => {
-          const request = (await reqResBasedClient.graphql(contextSpec, {
+          return reqResBasedClient.graphql(contextSpec, {
             query: createLawQuery,
             variables: { input },
-          })) as { data: { createLaw: { id: string } } };
-
-          if (request.data.createLaw.id) {
-            successCount++;
-          }
+          });
         },
-      });
+      }) as { data: { createLaw: { id: string } } };
+
+      const lawID = request.data.createLaw.id;
+
+      if (lawID) {
+        successCount++;
+        console.log(`Created law: ${input.name}, ID: ${lawID}`);
+
+        // Create the compendium-law relationship
+        const compendiumLawID = `${compendiumID}-${lawID}`; // Format compendiumLaw ID
+        const compendiumLawInput = {
+          id: compendiumLawID,
+          compendiumId: compendiumID,
+          lawId: lawID,
+        };
+
+        await runWithAmplifyServerContext({
+          nextServerContext: { request: req, response: new NextResponse() },
+          operation: async (contextSpec) => {
+            return reqResBasedClient.graphql(contextSpec, {
+              query: createCompendiumLawQuery,
+              variables: { input: compendiumLawInput },
+            });
+          },
+        });
+
+        console.log(`Created compendium-law relationship: ${compendiumLawID}`);
+      }
     } catch (e) {
-      console.error(`Error creating law: ${input.name}`, e);
+      console.error(`Error creating law or compendium-law relationship: ${input.name}`, e);
       errorCount++;
     }
   }
