@@ -4,7 +4,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { useForm, SubmitHandler } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { fetchAuthSession } from "aws-amplify/auth";
 import { Button } from "@/components/ui/button";
+import { get, post } from "aws-amplify/api";
 import { Input } from "@/components/ui/input";
 import {
   Form,
@@ -20,8 +22,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const singleUploadSchema = z.object({
-  id: z.string().min(1, "ID is required"),
-  text: z.string().min(1, "Text is required"),
+  id: z
+    .string()
+    .min(1, "ID is required")
+    .refine(
+      (id) => {
+        // Regex to match your specified format
+        const idRegex = /^\d+\.\d{5}$/;
+        return idRegex.test(id);
+      },
+      {
+        message:
+          "ID must be in the format 'natural_number.XXXXX' (e.g., 100.00001), where the first part is a natural number and the second part is a 5-digit number",
+      }
+    ),
   jurisdiction: z.string().min(1, "Jurisdiction is required"),
   source: z.string().url("Must be a valid URL"),
   lastReformDate: z
@@ -29,102 +43,160 @@ const singleUploadSchema = z.object({
     .min(1, "Last reform date is required")
     .refine(
       (date) => {
-        const isoDateRegex =
-          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
-        return isoDateRegex.test(date) && !isNaN(Date.parse(date));
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/; // YYYY-MM-DD format
+        return dateRegex.test(date) && !isNaN(Date.parse(date));
       },
       {
-        message: "Must be a valid ISO 8601 date",
+        message: "Must be a valid date in YYYY-MM-DD format",
       }
     ),
-  title: z
+  name: z
     .string()
-    .min(1, "Title is required")
+    .min(1, "Name is required")
     .transform((str) => str.toUpperCase()),
 });
 
 type SingleUploadFormValues = z.infer<typeof singleUploadSchema>;
 
-export default function Component() {
+export default function Component({ apiName }: { apiName: string }) {
   const [isBulkUpload, setIsBulkUpload] = useState(false);
-  const [isIdExist, setIsIdExist] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [isIdExist, setIsIdExist] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [uploadUrl, setUploadUrl] = useState<string | null>(null);
   const [compendiumID, setCompendiumID] = useState<string>(""); // New state for compendiumID
+
+  const getAuthToken = async () => {
+    const session = await fetchAuthSession();
+    const token = session.tokens?.idToken;
+    if (!token) throw new Error("No token found in session");
+    return String(token);
+  };
 
   const singleUploadForm = useForm<SingleUploadFormValues>({
     resolver: zodResolver(singleUploadSchema),
     defaultValues: {
       id: "",
-      text: "",
       jurisdiction: "",
       source: "",
       lastReformDate: "",
-      title: "",
+      name: "",
     },
   });
 
   const debounceRef = useRef<any>();
 
+  // Check if law ID exists and set initial form values
   useEffect(() => {
+    const validIdRegex = /^\d+\.\d{5}$/; // Matches 'natural_number.XXXXX'
+
     const checkIdExistence = async (id: string) => {
       setLoading(true);
-      const response = await fetch(`/api/fetch?id=${id}`);
-      const result = await response.json();
-      const law = result?.data?.law;
-
-      if (law?.id) {
-        setIsIdExist(true);
-        singleUploadForm.setValue("jurisdiction", law.jurisdiction);
-        singleUploadForm.setValue("source", law.source);
-        singleUploadForm.setValue("lastReformDate", law.lastReformDate);
-        singleUploadForm.setValue("title", law.name);
-      } else {
-        setIsIdExist(false);
-        singleUploadForm.setValue("jurisdiction", "");
-        singleUploadForm.setValue("source", "");
-        singleUploadForm.setValue("lastReformDate", "");
-        singleUploadForm.setValue("title", "");
+      const authToken = await getAuthToken();
+      try {
+        const restOperation = get({
+          apiName: apiName,
+          path: `law/${id}`,
+          options: { headers: { Authorization: authToken } },
+        });
+        const response = await restOperation.response;
+        const law = (await response.body.json()) as any;
+        if (law?.id) {
+          setIsIdExist(true);
+          singleUploadForm.setValue("jurisdiction", law.jurisdiction);
+          singleUploadForm.setValue("source", law.source);
+          singleUploadForm.setValue("lastReformDate", law.lastReformDate);
+          singleUploadForm.setValue("name", law.name);
+        } else {
+          setIsIdExist(false);
+          singleUploadForm.setValue("jurisdiction", "");
+          singleUploadForm.setValue("source", "");
+          singleUploadForm.setValue("lastReformDate", "");
+          singleUploadForm.setValue("name", "");
+        }
+      } catch (error) {
+        console.log("GET call failed:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     const debouncedCheckIdExistence = (id: string) => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
-
-      debounceRef.current = setTimeout(() => {
-        checkIdExistence(id);
-      }, 1000);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => checkIdExistence(id), 1000);
     };
 
     const subscription = singleUploadForm.watch((value, { name }) => {
       if (name === "id" && value.id) {
-        debouncedCheckIdExistence(value.id);
+        // Only call the debounced check if the id matches the valid format
+        if (validIdRegex.test(value.id)) {
+          debouncedCheckIdExistence(value.id);
+        } else {
+          setIsIdExist(false); // Optionally reset existence state if invalid
+        }
       }
     });
 
     return () => {
       subscription.unsubscribe();
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
+      if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [singleUploadForm, setIsIdExist]);
 
-  const onSingleUploadSubmit: SubmitHandler<SingleUploadFormValues> = (
+  // Function to submit metadata and retrieve pre-signed URL
+  const onSingleUploadSubmit: SubmitHandler<SingleUploadFormValues> = async (
     data
   ) => {
-    const actionType = isIdExist ? "Update" : "Upload";
-    console.log(`${actionType} action - Form Data:`);
-    console.log(JSON.stringify(data, null, 2));
+    setLoading(true);
+    const authToken = await getAuthToken();
+    try {
+      const restOperation = post({
+        apiName: apiName,
+        path: `law`,
+        options: {
+          headers: { Authorization: authToken },
+          body: { ...data },
+        },
+      });
+      const response = await restOperation.response;
+      const result = (await response.body.json()) as any;
+      setUploadUrl(result.uploadUrl);
+    } catch (error) {
+      console.error("Failed to upsert metadata:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // Function to handle file upload to S3 using pre-signed URL
   const handleTXTUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
+    if (!uploadUrl) {
+      alert("Please submit metadata to retrieve an upload URL.");
+      return;
+    }
     const file = event.target.files?.[0];
-    // TODO: Handle the logic to read and process the .txt file
+    if (file) {
+      try {
+        const response = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "text/plain" },
+          body: file,
+        });
+        if (response.ok) {
+          alert("File uploaded successfully!");
+          setUploadUrl(null);
+          singleUploadForm.reset();
+        } else {
+          throw new Error("Failed to upload file");
+        }
+      } catch (error) {
+        console.error("Error uploading file:", error);
+        alert(
+          "Failed to upload file. CONTACT AN ADMIN TO ENSURE DATA INTEGRITY"
+        );
+      }
+    }
   };
 
   const uploadMultipleLaws = async () => {
@@ -198,35 +270,53 @@ export default function Component() {
                             {...field}
                             placeholder="Enter law ID"
                             className="flex-grow"
-                            disabled={singleUploadForm.formState.isSubmitting}
+                            disabled={
+                              singleUploadForm.formState.isSubmitting ||
+                              loading ||
+                              !!uploadUrl
+                            }
                           />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+                  {uploadUrl && (
+                    <FormItem>
+                      <FormLabel>Text File</FormLabel>
+                      <FormDescription>
+                        Now, upload the text file.
+                      </FormDescription>
 
-                  <FormField
-                    control={singleUploadForm.control}
-                    name="text"
-                    render={() => (
-                      <FormItem>
-                        <FormLabel>Text</FormLabel>
-                        <FormDescription>Upload a .txt file</FormDescription>
-                        <Input
-                          type="file"
-                          accept=".txt"
-                          onChange={handleTXTUpload}
-                          className="mt-2"
-                          disabled={
-                            loading || singleUploadForm.formState.isSubmitting
-                          }
-                        />
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
+                      <Input
+                        type="file"
+                        accept=".txt"
+                        onChange={handleTXTUpload}
+                        className="mt-2"
+                        disabled={
+                          loading || singleUploadForm.formState.isSubmitting
+                        }
+                      />
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          setUploadUrl(null);
+                          singleUploadForm.reset();
+                          alert("Metadata updated, old file kept intact");
+                        }}
+                        className="mt-2"
+                        disabled={
+                          loading ||
+                          singleUploadForm.formState.isSubmitting ||
+                          !isIdExist
+                        }
+                      >
+                        {isIdExist
+                          ? "Click here if you don't want to update the law text document"
+                          : "Please ensure to upload the file to ensure data integrity"}
+                      </Button>
+                    </FormItem>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
                       control={singleUploadForm.control}
@@ -240,7 +330,8 @@ export default function Component() {
                               placeholder="e.g., MX, TTII, MX-CMX"
                               disabled={
                                 loading ||
-                                singleUploadForm.formState.isSubmitting
+                                singleUploadForm.formState.isSubmitting ||
+                                !!uploadUrl
                               }
                             />
                           </FormControl>
@@ -248,7 +339,6 @@ export default function Component() {
                         </FormItem>
                       )}
                     />
-
                     <FormField
                       control={singleUploadForm.control}
                       name="source"
@@ -262,7 +352,8 @@ export default function Component() {
                               placeholder="https://example.com/law-document.txt"
                               disabled={
                                 loading ||
-                                singleUploadForm.formState.isSubmitting
+                                singleUploadForm.formState.isSubmitting ||
+                                !!uploadUrl
                               }
                             />
                           </FormControl>
@@ -270,7 +361,6 @@ export default function Component() {
                         </FormItem>
                       )}
                     />
-
                     <FormField
                       control={singleUploadForm.control}
                       name="lastReformDate"
@@ -280,10 +370,11 @@ export default function Component() {
                           <FormControl>
                             <Input
                               {...field}
-                              placeholder="YYYY/MM/DD"
+                              placeholder="YYYY-MM-DD"
                               disabled={
                                 loading ||
-                                singleUploadForm.formState.isSubmitting
+                                singleUploadForm.formState.isSubmitting ||
+                                !!uploadUrl
                               }
                             />
                           </FormControl>
@@ -291,20 +382,20 @@ export default function Component() {
                         </FormItem>
                       )}
                     />
-
                     <FormField
                       control={singleUploadForm.control}
-                      name="title"
+                      name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Title</FormLabel>
+                          <FormLabel>Name</FormLabel>
                           <FormControl>
                             <Input
                               {...field}
-                              placeholder="LAW TITLE"
+                              placeholder="LAW NAME"
                               disabled={
                                 loading ||
-                                singleUploadForm.formState.isSubmitting
+                                singleUploadForm.formState.isSubmitting ||
+                                !!uploadUrl
                               }
                               onChange={(e) =>
                                 field.onChange(e.target.value.toUpperCase())
@@ -317,25 +408,28 @@ export default function Component() {
                     />
                   </div>
 
-                  <div className="flex justify-center space-x-4">
-                    <Button
-                      type="submit"
-                      className="w-32"
-                      disabled={
-                        loading || singleUploadForm.formState.isSubmitting
-                      }
-                    >
-                      {isIdExist ? (
-                        <>
-                          <UploadIcon className="mr-2 h-4 w-4" /> <>Update</>
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCwIcon className="mr-2 h-4 w-4" /> <>Upload</>
-                        </>
-                      )}
-                    </Button>
-                  </div>
+                  {!uploadUrl && (
+                    <div className="flex justify-center space-x-4">
+                      <Button
+                        type="submit"
+                        className="w-32"
+                        disabled={
+                          loading || singleUploadForm.formState.isSubmitting
+                        }
+                      >
+                        {isIdExist ? (
+                          <>
+                            <RefreshCwIcon className="mr-2 h-4 w-4" />{" "}
+                            <>Update</>
+                          </>
+                        ) : (
+                          <>
+                            <UploadIcon className="mr-2 h-4 w-4" /> <>Upload</>
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
                 </form>
               </Form>
             </TabsContent>
