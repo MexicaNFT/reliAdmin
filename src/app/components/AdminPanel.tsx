@@ -60,6 +60,7 @@ type SingleUploadFormValues = z.infer<typeof singleUploadSchema>;
 
 export default function Component({ apiName }: { apiName: string }) {
   const [isBulkUpload, setIsBulkUpload] = useState(false);
+  const [bulkResult, setBulkResult] = useState<any>(null);
   const [isIdExist, setIsIdExist] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploadUrl, setUploadUrl] = useState<string | null>(null);
@@ -220,30 +221,49 @@ export default function Component({ apiName }: { apiName: string }) {
     const input = document.getElementById("csv") as HTMLInputElement;
     const file = input?.files?.[0];
 
-    if (!file || !compendiumID) {
-      alert("No file or compendium ID provided");
+    if (!file) {
+      alert("No file provided");
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("compendiumID", compendiumID); // Append compendiumID to formData
+    if (!compendiumID) {
+      alert("No compendium ID provided");
+      return;
+    }
 
-    try {
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const fileContent = reader.result as string;
+      const base64File = btoa(fileContent); // Encode file content to base64
 
-      if (response.ok) {
+      const authToken = await getAuthToken();
+      try {
+        const restOperation = post({
+          apiName: apiName, // Use the appropriate API name
+          path: `laws`, // Target the /laws endpoint
+          options: {
+            headers: { Authorization: authToken },
+            body: {
+              csvFile: base64File,
+              compendiumID,
+            },
+          },
+        });
+
+        const response = await restOperation.response;
+        const result = await response.body.json();
+        setCompendiumID(""); // Reset compendium ID
+        input.value = ""; // Clear file input
+        setBulkResult(result);
+        console.log("Bulk upload result:", result);
         alert("File uploaded successfully");
-      } else {
+      } catch (error) {
+        console.error("Failed to upload file:", error);
         alert("Error uploading file");
       }
-    } catch (error) {
-      alert("Error uploading file");
-      console.error(error);
-    }
+    };
+
+    reader.readAsText(file); // Read the file as text to base64 encode it
   };
 
   return (
@@ -462,14 +482,28 @@ export default function Component({ apiName }: { apiName: string }) {
                   ) : (
                     // RED MESSAGE TO ALERT USER TO UPLOAD FILE
                     <div className="mt-4 text-red-600">
-                      <p>NO S3 FILE FOUND: Upload the text file to ensure data integrity</p>
+                      <p>
+                        NO S3 FILE FOUND: Upload the text file to ensure data
+                        integrity
+                      </p>
                     </div>
                   )}
                 </form>
               </Form>
             </TabsContent>
             <TabsContent value="bulk">
-              {/* <form className="space-y-6">
+              <form className="space-y-6 flex flex-col items-center">
+                <p className="text-center text-lg">
+                  Upload a CSV file containing multiple laws
+                </p>
+                <p className="text-center text-sm text-gray-600">
+                  CSV file must contain columns: "jurisdiction", "source",
+                  "last_reform_date", "title", "Id"
+                </p>
+                <p className="text-center text-sm text-gray-600">
+                  ALL laws in the CSV file should already exist in S3 for the
+                  operation to succeed
+                </p>
                 <div className="space-y-2">
                   <label htmlFor="compendiumID" className="block font-medium">
                     Compendium ID
@@ -495,7 +529,34 @@ export default function Component({ apiName }: { apiName: string }) {
                 >
                   <FileIcon className="mr-2 h-4 w-4" /> <>Upload</>
                 </Button>
-              </form> */}
+                {bulkResult && (
+                  <div className="mt-4">
+                    <ul>
+                      {bulkResult.map((result: any, index: number) => (
+                        <li key={index} className="flex items-start space-x-2">
+                          <span className="mr-2">
+                            {result.valid ? "✅" : "❌"}
+                          </span>
+                          <div>
+                            <div className="font-medium">
+                              Law ID: {result.lawID}
+                            </div>
+                            {!result.valid && result.errors && (
+                              <ul className="list-disc list-inside text-red-600">
+                                {result.errors.map(
+                                  (error: string, idx: number) => (
+                                    <li key={idx}>{error}</li>
+                                  )
+                                )}
+                              </ul>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </form>
             </TabsContent>
           </Tabs>
         </CardContent>
