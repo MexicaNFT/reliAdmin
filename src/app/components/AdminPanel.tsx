@@ -585,8 +585,7 @@ export default function Component({ apiName }: { apiName: string }) {
                   "last_reform_date", "title", "Id"
                 </p>
                 <p className="text-center text-sm text-gray-600">
-                  ALL laws in the CSV file should already exist in S3 for the
-                  operation to succeed
+                  Manually upload all law texts to S3 after bulk upload! This will auto embed the text.
                 </p>
                 <div className="space-y-2">
                   <label htmlFor="compendiumID" className="block font-medium">
