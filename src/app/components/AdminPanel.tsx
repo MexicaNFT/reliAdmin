@@ -63,6 +63,7 @@ export default function Component({ apiName }: { apiName: string }) {
   const [isIdExist, setIsIdExist] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploadUrl, setUploadUrl] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [compendiumID, setCompendiumID] = useState<string>(""); // New state for compendiumID
 
   const getAuthToken = async () => {
@@ -100,21 +101,36 @@ export default function Component({ apiName }: { apiName: string }) {
         });
         const response = await restOperation.response;
         const law = (await response.body.json()) as any;
+
         if (law?.id) {
           setIsIdExist(true);
           singleUploadForm.setValue("jurisdiction", law.jurisdiction);
           singleUploadForm.setValue("source", law.source);
           singleUploadForm.setValue("lastReformDate", law.lastReformDate);
           singleUploadForm.setValue("name", law.name);
+
+          // Set download URL if it exists
+          if (law.downloadUrl) {
+            setDownloadUrl(law.downloadUrl);
+          } else {
+            setDownloadUrl(null); // Reset if no download URL
+          }
         } else {
           setIsIdExist(false);
           singleUploadForm.setValue("jurisdiction", "");
           singleUploadForm.setValue("source", "");
           singleUploadForm.setValue("lastReformDate", "");
           singleUploadForm.setValue("name", "");
+          setDownloadUrl(null); // Reset download URL if law doesn't exist
         }
       } catch (error) {
         console.log("GET call failed:", error);
+        setIsIdExist(false);
+        setDownloadUrl(null); // Reset download URL if GET call fails
+        singleUploadForm.setValue("jurisdiction", "");
+        singleUploadForm.setValue("source", "");
+        singleUploadForm.setValue("lastReformDate", "");
+        singleUploadForm.setValue("name", "");
       } finally {
         setLoading(false);
       }
@@ -132,6 +148,7 @@ export default function Component({ apiName }: { apiName: string }) {
           debouncedCheckIdExistence(value.id);
         } else {
           setIsIdExist(false); // Optionally reset existence state if invalid
+          setDownloadUrl(null); // Optionally reset download URL if invalid
         }
       }
     });
@@ -140,7 +157,7 @@ export default function Component({ apiName }: { apiName: string }) {
       subscription.unsubscribe();
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [singleUploadForm, setIsIdExist]);
+  }, [singleUploadForm, setIsIdExist, setDownloadUrl]);
 
   // Function to submit metadata and retrieve pre-signed URL
   const onSingleUploadSubmit: SubmitHandler<SingleUploadFormValues> = async (
@@ -428,6 +445,24 @@ export default function Component({ apiName }: { apiName: string }) {
                           </>
                         )}
                       </Button>
+                    </div>
+                  )}
+
+                  {downloadUrl && singleUploadForm.getValues("id") ? (
+                    <div className="mt-4">
+                      <a
+                        href={downloadUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline"
+                      >
+                        View Law Text
+                      </a>
+                    </div>
+                  ) : (
+                    // RED MESSAGE TO ALERT USER TO UPLOAD FILE
+                    <div className="mt-4 text-red-600">
+                      <p>NO S3 FILE FOUND: Upload the text file to ensure data integrity</p>
                     </div>
                   )}
                 </form>
