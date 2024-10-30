@@ -434,8 +434,7 @@ export default function Component({ apiName }: { apiName: string }) {
               </Form>
             </TabsContent>
             <TabsContent value="bulk">
-              <form className="space-y-6">
-                {/* Compendium ID Field */}
+              {/* <form className="space-y-6">
                 <div className="space-y-2">
                   <label htmlFor="compendiumID" className="block font-medium">
                     Compendium ID
@@ -461,7 +460,7 @@ export default function Component({ apiName }: { apiName: string }) {
                 >
                   <FileIcon className="mr-2 h-4 w-4" /> <>Upload</>
                 </Button>
-              </form>
+              </form> */}
             </TabsContent>
           </Tabs>
         </CardContent>
