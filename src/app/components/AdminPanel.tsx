@@ -65,6 +65,7 @@ export default function Component({ apiName }: { apiName: string }) {
   const [loading, setLoading] = useState(false);
   const [uploadUrl, setUploadUrl] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [associatedCompendiums, setAssociatedCompendiums] = useState<any>([]);
   const [compendiumID, setCompendiumID] = useState<string>(""); // New state for compendiumID
 
   const getAuthToken = async () => {
@@ -93,6 +94,7 @@ export default function Component({ apiName }: { apiName: string }) {
 
     const checkIdExistence = async (id: string) => {
       setLoading(true);
+      setAssociatedCompendiums([]); // Reset associated compendiums
       const authToken = await getAuthToken();
       try {
         const restOperation = get({
@@ -116,6 +118,13 @@ export default function Component({ apiName }: { apiName: string }) {
           } else {
             setDownloadUrl(null); // Reset if no download URL
           }
+
+          // Set associated compendiums if they exist
+          if (law.associatedCompendiums) {
+            setAssociatedCompendiums(law.associatedCompendiums);
+          } else {
+            setAssociatedCompendiums([]); // Reset if no associated compendiums
+          }
         } else {
           setIsIdExist(false);
           singleUploadForm.setValue("jurisdiction", "");
@@ -123,11 +132,13 @@ export default function Component({ apiName }: { apiName: string }) {
           singleUploadForm.setValue("lastReformDate", "");
           singleUploadForm.setValue("name", "");
           setDownloadUrl(null); // Reset download URL if law doesn't exist
+          setAssociatedCompendiums([]); // Reset associated compendiums
         }
       } catch (error) {
         console.log("GET call failed:", error);
         setIsIdExist(false);
         setDownloadUrl(null); // Reset download URL if GET call fails
+        setAssociatedCompendiums([]); // Reset associated compendiums
         singleUploadForm.setValue("jurisdiction", "");
         singleUploadForm.setValue("source", "");
         singleUploadForm.setValue("lastReformDate", "");
@@ -489,6 +500,79 @@ export default function Component({ apiName }: { apiName: string }) {
                     </div>
                   )}
                 </form>
+                {associatedCompendiums && associatedCompendiums.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-lg font-semibold">
+                      Associated Compendiums
+                    </h3>
+                    <div className="space-y-4">
+                      {associatedCompendiums.map((compendium: any) => (
+                        <div
+                          key={compendium?.id}
+                          className="border p-4 rounded-md shadow-sm"
+                        >
+                          <p>
+                            <span className="font-semibold">
+                              Compendium ID:
+                            </span>{" "}
+                            {compendium.compendiumId}
+                          </p>
+                          <p>
+                            <span className="font-semibold">
+                              Compendium Name:
+                            </span>{" "}
+                            {compendium?.compendium?.name}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Create Compendium Law association */}
+                {singleUploadForm.getValues("id") && !loading && isIdExist && (
+                  <div className="mt-6">
+                    <form
+                      className="space-y-4"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        const compendiumId = prompt("Enter Compendium ID");
+                        if (compendiumId) {
+                          const authToken = await getAuthToken();
+                          try {
+                            const restOperation = post({
+                              apiName: apiName,
+                              path: `compendiumLaw`,
+                              options: {
+                                headers: { Authorization: authToken },
+                                body: {
+                                  compendiumId,
+                                  lawId: singleUploadForm.getValues("id"),
+                                },
+                              },
+                            });
+                            const response = await restOperation.response;
+                            const result = await response.body.json();
+                            console.log(
+                              "Compendium Law association result:",
+                              result
+                            );
+                            alert(
+                              "Compendium Law association created successfully, refresh the page to see the updated list"
+                            );
+                          } catch (error) {
+                            console.error(
+                              "Failed to create Compendium Law association:",
+                              error
+                            );
+                            alert("Error creating Compendium Law association");
+                          }
+                        }
+                      }}
+                    >
+                      <Button type="submit">+</Button>
+                    </form>
+                  </div>
+                )}
               </Form>
             </TabsContent>
             <TabsContent value="bulk">
